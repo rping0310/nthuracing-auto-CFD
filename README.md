@@ -436,7 +436,7 @@ starccm+ -batch postprocess.java template_meshed.sim
 **When to use**:
 - Long simulations where efficiency matters
 - When mesh and solve have very different computational requirements
-- When you need GPU for solve but not for mesh
+- When you need GPU for solve, you need more core for fast meshing and fewer core for less VRAM usage & CPU/GPU IO delay
 - When you're willing to manually start Phase 2
 
 ---

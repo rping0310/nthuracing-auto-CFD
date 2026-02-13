@@ -399,7 +399,21 @@ starccm+ -np 10 -batch batch_run.java simulation.sim # if MESH_CORE=10,
 ./run_phase2.sh  # Linux
 run_phase2.bat   # Windows
 ```
+## Prerequisites
 
+### Add STAR-CCM+ to PATH (Required)
+```bash
+# Add to ~/.bashrc
+export PATH=$PATH:$HOME/20.06.007-R8/STAR-CCM+20.06.007-R8/star/bin
+
+# Reload
+source ~/.bashrc
+
+# Verify
+starccm+ -version
+```
+
+**Important**: Without this, you must use the full path to `starccm+` in all commands.
 ---
 
 ## Naming Conventions

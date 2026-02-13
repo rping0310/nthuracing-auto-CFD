@@ -351,7 +351,7 @@ double value = (Double) method.invoke(reportObj);
 ---
 
 ### 7. gui_run.java
-**Purpose**: Execute complete workflow in GUI mode (single core count)
+**Purpose**: Execute complete workflow with a single command (fully automated)
 
 **Execution Order**:
 1. geometryimport.java
@@ -363,41 +363,121 @@ double value = (Double) method.invoke(reportObj);
 
 **Usage**:
 ```bash
-# In STAR-CCM+ GUI: Tools → Macros → Execute...
-# Select: gui_run.java
+# In GUI: Tools → Macros → Execute... → gui_run.java
+
+# In Batch Mode (Recommended for automation):
+starccm+ -np 20 -batch gui_run.java template.sim
+
+# Background execution (fully automated, no user intervention):
+nohup starccm+ -np 20 -batch gui_run.java template.sim > workflow.log 2>&1 &
 ```
+
+**Characteristics**:
+- ✅ **Fully automated**: Single command, zero manual intervention
+- ✅ **Simple**: No need to manage multiple phases
+- ⚠️ **Fixed core count**: All steps use same number of cores
+- ⚠️ **Resource inefficiency**: Pre-processing steps don't need many cores
+
+**When to use**:
+- Quick simulations where setup time is short
+- When simplicity is more important than efficiency
+- When you want to "set and forget"
 
 ---
 
 ### 8. batch_run.java
-**Purpose**: Execute workflow with different core counts for mesh and solve phases
+**Purpose**: Execute workflow with optimized core allocation for different phases
 
 **Configuration** (edit at top of file):
 ```java
-private static final int MESH_CORE = 10;      // Cores for meshing, but the real meshing core is determined in batch mode command
+private static final int MESH_CORE = 10;      // Cores for meshing (recommendation)
 private static final int SOLVE_CORE = 20;     // Cores for solving
-private static final int GPGPU = 0;           // Number of GPUs (0 = no GPU) if one want to use gpgpu, SOLVE_CORE is recommand to be the same number of GPUs 
+private static final int GPGPU = 0;           // Number of GPUs (0 = no GPU)
 private static final int POSTPROCESS = 1;     // 1 = run postprocess, 0 = skip
 ```
 
-**Phase 1** (Mesh Phase):
-- Runs with `MESH_CORE` cores
-- Executes: geometryimport → transform → boundarysetup_N → mesh
-- Saves and generates Phase 2 scripts
+**⚠️ Important Note**: 
+`MESH_CORE` is a **recommendation only**. The actual cores used in Phase 1 are determined by the `-np` parameter in the command line.
 
-**Phase 2** (Solve Phase):
+**Phase 1** (Pre-processing & Mesh):
+- Runs with cores specified by `-np` parameter
+- Executes: geometryimport → transform → boundarysetup_N → mesh
+- Saves meshed file and generates Phase 2 scripts
+- **Stops after meshing** - requires manual intervention
+
+**Phase 2** (Solve & Post-process):
 - Runs with `SOLVE_CORE` cores (and GPUs if specified)
 - Executes: solve (and postprocess if enabled)
-- Use generated `run_phase2.sh` (Linux) or `run_phase2.bat` (Windows)
+- Must be started manually using generated scripts
 
 **Usage**:
 ```bash
-# Phase 1: Start with MESH_CORE
-starccm+ -np 10 -batch batch_run.java simulation.sim # if MESH_CORE=10, 
+# Phase 1: Pre-processing and Meshing (use fewer cores)
+starccm+ -np 10 -batch batch_run.java template.sim
 
-# Phase 2: After Phase 1 completes, run generated script
-./run_phase2.sh  # Linux
-run_phase2.bat   # Windows
+# ⚠️ Phase 1 will stop here and wait for manual intervention
+
+# Phase 2: Solve and Post-process (use more cores)
+./run_phase2.sh          # Linux
+run_phase2.bat           # Windows
+
+# Or manually:
+starccm+ -np 20 -batch solve.java template_meshed.sim
+starccm+ -batch postprocess.java template_meshed.sim
+```
+
+**Characteristics**:
+- ✅ **Resource efficient**: Different core counts for different phases
+- ✅ **Flexible**: Adjust cores/GPUs between phases
+- ✅ **Cost-effective**: Don't waste cores on simple pre-processing
+- ❌ **Not fully automated**: Requires manual execution of Phase 2
+- ❌ **User intervention**: Must wait for Phase 1 to finish
+
+**When to use**:
+- Long simulations where efficiency matters
+- When mesh and solve have very different computational requirements
+- When you need GPU for solve but not for mesh
+- When you're willing to manually start Phase 2
+
+---
+
+## Workflow Comparison
+
+| Feature | gui_run.java | batch_run.java |
+|---------|--------------|----------------|
+| **Automation** | ✅ Fully automatic | ❌ Manual Phase 2 start |
+| **Core efficiency** | ❌ Fixed cores | ✅ Optimized allocation |
+| **GPU support** | ⚠️ All phases | ✅ Solve phase only |
+| **User intervention** | ❌ None required | ✅ Required after Phase 1 |
+| **Simplicity** | ✅ Single command | ⚠️ Two-step process |
+| **Best for** | Quick runs, simplicity | Long runs, efficiency |
+
+### Example Scenarios
+
+**Scenario 1: Quick overnight run**
+```bash
+# Use gui_run.java - set and forget
+nohup starccm+ -np 20 -batch gui_run.java template.sim > log.txt 2>&1 &
+# Go home, come back tomorrow
+```
+
+**Scenario 2: Large simulation with limited resources**
+```bash
+# Use batch_run.java - efficient resource use
+# Phase 1: Morning, use 10 cores for 2 hours
+starccm+ -np 10 -batch batch_run.java template.sim
+
+# Phase 2: Afternoon, use 40 cores + 2 GPUs for solve
+./run_phase2.sh  # (configured with SOLVE_CORE=40, GPGPU=2)
+```
+
+**Scenario 3: Multiple configurations**
+```bash
+# Use gui_run.java - simplest for batch processing
+for config in config_*.dat; do
+    cp $config case_parameter.dat
+    starccm+ -np 16 -batch gui_run.java template.sim
+done
 ```
 ## Prerequisites
 
@@ -501,45 +581,97 @@ other configulation parameter like suspension geometry, scene position, refineme
 
 ## Usage
 
-### Method 1: GUI Mode (Simple)
-```bash
-# 1. Open STAR-CCM+ with your template file
-starccm+ template.sim
+### Method 1: Fully Automated (Recommended for most users)
 
-# 2. Place all required files in the same directory:
+**Using gui_run.java in batch mode**:
+
+```bash
+# 1. Prepare files in simulation directory:
+#    - template.sim
 #    - case_parameter.dat
-#    - body.x_t
-#    - unsprung.x_t
-#    - TH11_NNN.x_t
+#    - body.x_t, unsprung.x_t, TH11_NNN.x_t
 #    - All .java macro files
 
-# 3. Save the simulation file
+cd /path/to/simulation/directory
 
-# 4. Run gui_run.java from GUI:
+# 2. Run complete workflow with single command:
+starccm+ -np 20 -batch gui_run.java template.sim
+
+# 3. For background execution (can logout/close terminal):
+nohup starccm+ -np 20 -batch gui_run.java template.sim > workflow.log 2>&1 &
+
+# 4. Monitor progress:
+tail -f workflow.log
+
+# 5. Results will be ready when complete:
+#    - Meshed file: template[s|y|c]@meshed.sim
+#    - Reports: Result.dat
+#    - Animations: PNG sequences in subdirectories
+```
+
+**Advantages**:
+- Zero manual intervention required
+- Single command execution
+- Perfect for overnight/weekend runs
+- Simple to script for multiple configurations
+
+**Disadvantages**:
+- All phases use same core count (less efficient)
+- Cannot switch to GPU for solve phase only
+
+---
+
+### Method 2: Resource-Optimized (For long simulations)
+
+**Using batch_run.java for efficient core allocation**:
+
+```bash
+# 1. Configure batch_run.java:
+#    Edit MESH_CORE (recommendation), SOLVE_CORE, GPGPU at top of file
+
+# 2. Run Phase 1 (Pre-processing & Meshing) with fewer cores:
+starccm+ -np 10 -batch batch_run.java template.sim
+
+# 3. Wait for Phase 1 to complete, then run Phase 2 with more cores:
+./run_phase2.sh          # Linux
+run_phase2.bat           # Windows
+
+# 4. Or manually start Phase 2:
+starccm+ -np 40 -gpu 2 -batch solve.java template_meshed.sim
+starccm+ -batch postprocess.java template_meshed.sim
+```
+
+**Advantages**:
+- Optimal resource utilization
+- Can use GPU for solve only
+- Flexibility in core/GPU allocation
+- Cost-effective for HPC clusters
+
+**Disadvantages**:
+- Requires manual intervention after Phase 1
+- Two-step process
+- User must monitor Phase 1 completion
+
+---
+
+### Method 3: GUI Mode (Interactive)
+
+```bash
+# 1. Open STAR-CCM+ GUI
+starccm+ template.sim
+
+# 2. Ensure all files are in the same directory
+
+# 3. Run workflow:
 #    Tools → Macros → Execute... → gui_run.java
 ```
 
-### Method 2: Batch Mode (Advanced)
+---
+
+### Method 4: Individual Macros (Debug/Development)
+
 ```bash
-# 1. Configure batch_run.java parameters:
-#    MESH_CORE, SOLVE_CORE, GPGPU, POSTPROCESS
-
-# 2. Run Phase 1 (Mesh):
-starccm+ -np 10 -batch batch_run.java template.sim
-
-# 3. Phase 1 will generate:
-#    - XXX[s|y|c]@meshed.sim
-#    - run_phase2.sh (Linux)
-#    - run_phase2.bat (Windows)
-
-# 4. Run Phase 2 (Solve + Postprocess):
-./run_phase2.sh          # Linux
-run_phase2.bat           # Windows
-```
-
-### Method 3: Individual Macros (Debug/Development)
-```bash
-# Run macros one by one
+# Run macros one by one for debugging
 starccm+ -batch geometryimport.java simulation.sim
 starccm+ -batch transform.java simulation.sim
 starccm+ -batch boundarysetup_2.java simulation.sim
